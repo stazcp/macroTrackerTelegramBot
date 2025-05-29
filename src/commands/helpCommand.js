@@ -15,7 +15,8 @@ module.exports = (bot) => (msg) => {
     `/goals - View your current nutritional goals\n` +
     `/goals [calories] [protein] [carbs] [fat] - Set new goals\n` +
     `/history - View your food log history (default: 7 days)\n` +
-    `/history [days] - View history for specific number of days\n\n` +
+    `/history [days] - View history for specific number of days\n` +
+    `/clear - Clear all food entries for today (with confirmation)\n\n` +
     `📝 *Quick Logging*\n` +
     `Simply send any food item as a message to log it automatically.\n\n` +
     `Example: "banana" or "2 slices of bread"\n\n` +

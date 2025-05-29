@@ -120,6 +120,26 @@ const deleteFoodLog = async (logId) => {
   return FoodLog.findByIdAndDelete(logId)
 }
 
+/**
+ * Clear all food logs for today for a user
+ * @param {number} telegramId - Telegram user ID
+ * @returns {Promise<object>} Result with deleted count
+ */
+const clearTodayLogs = async (telegramId) => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+
+  const result = await FoodLog.deleteMany({
+    telegramId,
+    date: { $gte: today, $lt: tomorrow },
+  })
+
+  return result
+}
+
 module.exports = {
   logFood,
   getTodayLogs,
@@ -128,4 +148,5 @@ module.exports = {
   getMostRecentLog,
   updateFoodLog,
   deleteFoodLog,
+  clearTodayLogs,
 }

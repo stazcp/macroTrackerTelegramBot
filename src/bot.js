@@ -1,6 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api')
 const aiService = require('./services/aiService')
 const conversationService = require('./services/conversationService')
+const confirmationService = require('./services/confirmationService')
 
 // Command handlers
 const startCommand = require('./commands/startCommand')
@@ -9,6 +10,7 @@ const logCommand = require('./commands/logCommand')
 const statusCommand = require('./commands/statusCommand')
 const goalsCommand = require('./commands/goalsCommand')
 const historyCommand = require('./commands/historyCommand')
+const clearCommand = require('./commands/clearCommand')
 
 // Get bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN
@@ -23,6 +25,7 @@ bot.onText(/\/log (.+)/, logCommand(bot))
 bot.onText(/\/status/, statusCommand(bot))
 bot.onText(/\/goals(?:\s+(\d+))?(?:\s+(\d+))?(?:\s+(\d+))?(?:\s+(\d+))?/, goalsCommand(bot))
 bot.onText(/\/history(?:\s+(\d+))?/, historyCommand(bot))
+bot.onText(/\/clear/, clearCommand(bot))
 
 // Handle conversational messages
 bot.on('message', async (msg) => {
@@ -34,6 +37,21 @@ bot.on('message', async (msg) => {
   // If it's a text message, process it intelligently
   if (msg.text) {
     try {
+      // Check if user has a pending confirmation
+      const pendingConfirmation = confirmationService.getPendingConfirmation(msg.from.id)
+
+      if (
+        pendingConfirmation &&
+        confirmationService.isConfirmationResponse(msg.text, pendingConfirmation)
+      ) {
+        // Handle confirmation response based on type
+        if (pendingConfirmation.type === 'clear') {
+          return await clearCommand.handleClearConfirmation(bot, msg, pendingConfirmation)
+        }
+        // Future: Add other confirmation types here
+        return
+      }
+
       // Send "typing" indicator
       bot.sendChatAction(msg.chat.id, 'typing')
 
