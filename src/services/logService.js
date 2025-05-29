@@ -9,12 +9,38 @@ const foodService = require('./foodService')
 /**
  * Log a food item for a user
  * @param {object} user - User document
- * @param {string} foodText - Food description
+ * @param {string|object} foodInput - Food description string OR pre-parsed food object
  * @returns {Promise<object>} Created food log
  */
-const logFood = async (user, foodText) => {
-  // Estimate calories and macros
-  const nutritionInfo = foodService.estimateCalories(foodText)
+const logFood = async (user, foodInput) => {
+  let nutritionInfo
+
+  // Check if foodInput is already a parsed food object or needs parsing
+  if (typeof foodInput === 'string') {
+    // Old behavior: estimate calories and macros from text
+    nutritionInfo = foodService.estimateCalories(foodInput)
+  } else {
+    // New behavior: use pre-parsed food data from AI
+    // Extract numeric quantity from strings like "1 patty" or "2 eggs"
+    let numericQuantity = 1
+    if (foodInput.quantity) {
+      const quantityMatch = String(foodInput.quantity).match(/^(\d+(?:\.\d+)?)/)
+      if (quantityMatch) {
+        numericQuantity = parseFloat(quantityMatch[1])
+      }
+    }
+
+    nutritionInfo = {
+      food: foodInput.item,
+      quantity: numericQuantity,
+      calories: foodInput.estimatedCalories,
+      protein: foodInput.protein,
+      carbs: foodInput.carbs,
+      fat: foodInput.fat,
+      source: foodInput.source || 'ai_parsed',
+      note: foodInput.note || '',
+    }
+  }
 
   // Create new food log entry
   const foodLog = new FoodLog({

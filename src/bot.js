@@ -81,13 +81,28 @@ bot.on('message', async (msg) => {
         // Send the parsed response
         bot.sendMessage(msg.chat.id, response)
 
-        // Log each food item using existing logic (silently to avoid duplicate messages)
-        for (const food of foodData.foods) {
-          try {
-            await logCommand(bot)(msg, [null, `${food.item} ${food.quantity}`], true)
-          } catch (error) {
-            console.error('Error logging food item:', error)
+        // Log each food item using the new approach with pre-parsed data
+        const userService = require('./services/userService')
+        const logService = require('./services/logService')
+
+        try {
+          // Get or create user
+          const user = await userService.getOrCreateUser(msg.from.id, {
+            username: msg.from.username,
+            firstName: msg.from.first_name,
+            lastName: msg.from.last_name,
+          })
+
+          // Log each food item with the AI-parsed nutrition data
+          for (const food of foodData.foods) {
+            try {
+              await logService.logFood(user, food) // Pass the pre-parsed food object
+            } catch (error) {
+              console.error('Error logging food item:', error)
+            }
           }
+        } catch (error) {
+          console.error('Error getting user or logging foods:', error)
         }
 
         // Store conversation context with food data for potential modifications
@@ -156,13 +171,27 @@ bot.on('message', async (msg) => {
               response += `Additional ${totalCalories} calories logged! 📈`
               bot.sendMessage(msg.chat.id, response)
 
-              // Log the additional items
-              for (const food of foodData.foods) {
-                try {
-                  await logCommand(bot)(msg, [null, `${food.item} ${food.quantity}`], true)
-                } catch (error) {
-                  console.error('Error logging additional food item:', error)
+              // Log the additional items using the new approach
+              try {
+                const userService = require('./services/userService')
+
+                // Get or create user
+                const user = await userService.getOrCreateUser(msg.from.id, {
+                  username: msg.from.username,
+                  firstName: msg.from.first_name,
+                  lastName: msg.from.last_name,
+                })
+
+                // Log each additional food item with the AI-parsed nutrition data
+                for (const food of foodData.foods) {
+                  try {
+                    await logService.logFood(user, food) // Pass the pre-parsed food object
+                  } catch (error) {
+                    console.error('Error logging additional food item:', error)
+                  }
                 }
+              } catch (error) {
+                console.error('Error getting user or logging additional foods:', error)
               }
             }
           } catch (error) {

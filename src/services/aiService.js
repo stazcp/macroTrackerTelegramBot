@@ -205,30 +205,39 @@ Example responses:
     }
 
     const prompt = `
-Extract food items from this message and return JSON only:
+Extract all individual food items from this message and return JSON only. Parse compound foods into separate items with realistic nutrition data.
 
 Message: "${message}"
+
+Guidelines:
+- Parse "beef patty with 2 eggs" as separate: beef patty (1) + eggs (2)
+- Parse "chicken sandwich" as: bread (2 slices) + chicken breast (100g) + any mentioned additions
+- Parse "pasta with sauce" as: pasta + sauce separately
+- Use realistic serving sizes and nutrition data
+- For beef patty: ~300-400 calories, ~25-30g protein, 0-2g carbs, 20-25g fat
+- For eggs: ~70-75 calories each, ~6g protein, 0.5g carbs, 5g fat
+- For chicken breast: ~165 cal/100g, 31g protein, 0g carbs, 3.6g fat
+- For bread slice: ~80 calories, 3g protein, 15g carbs, 1g fat
+- If quantity not specified, use reasonable defaults (1 patty, 1 cup pasta, etc.)
 
 Return format:
 {
   "foods": [
     {
-      "item": "food name",
+      "item": "specific food name",
       "quantity": "amount with unit",
       "estimatedCalories": number,
       "protein": number,
       "carbs": number,
-      "fat": number
+      "fat": number,
+      "source": "ai_enhanced"
     }
-  ]
+  ],
+  "total_calories": number,
+  "parsing_notes": "brief explanation of how items were parsed"
 }
 
-Important:
-- Use realistic nutrition estimates for common foods
-- If the food is "apple", use approximately: 95 calories, 0.5g protein, 25g carbs, 0.3g fat
-- If the food is "coffee", use approximately: 2 calories, 0g protein, 0g carbs, 0g fat
-- If no quantity specified, assume 1 serving
-- Return valid JSON only, no other text
+Return valid JSON only, no other text.
 `
 
     try {
@@ -236,23 +245,31 @@ Important:
         messages: [{ role: 'user', content: prompt }],
         model: 'llama-3.1-8b-instant', // Free and fast
         temperature: 0.1,
-        max_tokens: 500,
+        max_tokens: 800, // Increased for multiple food items
       })
 
       const response = completion.choices[0]?.message?.content
       console.log('AI response for food parsing:', response) // Debug logging
 
       if (!response) {
-        console.warn('Empty AI response, using fallback')
-        return this.basicFoodParsing(message)
+        console.warn('Empty AI response, using enhanced fallback')
+        return this.enhancedFoodParsing(message)
       }
 
       const foodData = JSON.parse(response)
 
       // Validate the response structure
       if (!foodData.foods || !Array.isArray(foodData.foods) || foodData.foods.length === 0) {
-        console.warn('Invalid AI response structure, using fallback')
-        return this.basicFoodParsing(message)
+        console.warn('Invalid AI response structure, using enhanced fallback')
+        return this.enhancedFoodParsing(message)
+      }
+
+      // Calculate total calories if not provided
+      if (!foodData.total_calories) {
+        foodData.total_calories = foodData.foods.reduce(
+          (sum, food) => sum + food.estimatedCalories,
+          0
+        )
       }
 
       // Cache the result (limit cache size)
@@ -265,8 +282,148 @@ Important:
       return foodData
     } catch (error) {
       console.error('AI parsing error:', error.message)
-      // Fallback to basic parsing
+      // Fallback to enhanced parsing
+      return this.enhancedFoodParsing(message)
+    }
+  }
+
+  // Enhanced fallback method that can handle compound foods better
+  enhancedFoodParsing(message) {
+    const lowerMessage = message.toLowerCase()
+    const foods = []
+    const matchedRanges = [] // Track which parts of the message have been matched
+
+    // Enhanced food database with more variations and realistic portions
+    const enhancedFoodDb = {
+      // Proteins (order by specificity - longer matches first)
+      'beef patty': { calories: 350, protein: 28, carbs: 1, fat: 22, defaultQty: 1, unit: 'patty' },
+      'burger patty': {
+        calories: 350,
+        protein: 28,
+        carbs: 1,
+        fat: 22,
+        defaultQty: 1,
+        unit: 'patty',
+      },
+      'hamburger patty': {
+        calories: 350,
+        protein: 28,
+        carbs: 1,
+        fat: 22,
+        defaultQty: 1,
+        unit: 'patty',
+      },
+      'chicken breast': {
+        calories: 165,
+        protein: 31,
+        carbs: 0,
+        fat: 3.6,
+        defaultQty: 100,
+        unit: 'g',
+      },
+      eggs: { calories: 72, protein: 6.3, carbs: 0.4, fat: 5, defaultQty: 2, unit: 'eggs' },
+      egg: { calories: 72, protein: 6.3, carbs: 0.4, fat: 5, defaultQty: 1, unit: 'egg' },
+      beef: { calories: 250, protein: 26, carbs: 0, fat: 17, defaultQty: 100, unit: 'g' },
+      salmon: { calories: 206, protein: 22, carbs: 0, fat: 13, defaultQty: 100, unit: 'g' },
+
+      // Carbs
+      bread: { calories: 80, protein: 3, carbs: 15, fat: 1, defaultQty: 1, unit: 'slice' },
+      toast: { calories: 80, protein: 3, carbs: 15, fat: 1, defaultQty: 1, unit: 'slice' },
+      rice: { calories: 130, protein: 2.7, carbs: 28, fat: 0.3, defaultQty: 1, unit: 'cup' },
+      pasta: { calories: 220, protein: 8, carbs: 44, fat: 1.3, defaultQty: 1, unit: 'cup' },
+      potato: { calories: 161, protein: 4.3, carbs: 37, fat: 0.2, defaultQty: 1, unit: 'medium' },
+
+      // Dairy
+      cheese: { calories: 113, protein: 7, carbs: 1, fat: 9, defaultQty: 1, unit: 'slice' },
+      milk: { calories: 83, protein: 8, carbs: 12, fat: 2.4, defaultQty: 1, unit: 'cup' },
+      yogurt: { calories: 150, protein: 8, carbs: 17, fat: 4, defaultQty: 1, unit: 'cup' },
+
+      // Common combinations
+      sandwich: { calories: 300, protein: 15, carbs: 30, fat: 12, defaultQty: 1, unit: 'sandwich' },
+      burger: { calories: 540, protein: 31, carbs: 40, fat: 25, defaultQty: 1, unit: 'burger' },
+    }
+
+    // Function to check if a range overlaps with already matched ranges
+    const isOverlapping = (start, end) => {
+      return matchedRanges.some(
+        (range) =>
+          (start >= range.start && start <= range.end) ||
+          (end >= range.start && end <= range.end) ||
+          (start <= range.start && end >= range.end)
+      )
+    }
+
+    // Function to extract quantity from text
+    const extractQuantityAndPosition = (text, foodKey) => {
+      // Look for numbers before the food item with word boundaries
+      const patterns = [
+        new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s+${foodKey}\\b`, 'i'),
+        new RegExp(`\\b${foodKey}\\s+\\((\\d+(?:\\.\\d+)?)\\)`, 'i'),
+        new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s*${foodKey}\\b`, 'i'),
+      ]
+
+      for (const pattern of patterns) {
+        const match = text.match(pattern)
+        if (match) {
+          return {
+            quantity: parseFloat(match[1]),
+            start: match.index,
+            end: match.index + match[0].length,
+          }
+        }
+      }
+
+      // If no quantity found, look for just the food item with word boundaries
+      const foodPattern = new RegExp(`\\b${foodKey}\\b`, 'i')
+      const foodMatch = text.match(foodPattern)
+      if (foodMatch) {
+        return {
+          quantity: enhancedFoodDb[foodKey].defaultQty,
+          start: foodMatch.index,
+          end: foodMatch.index + foodMatch[0].length,
+        }
+      }
+
+      return null
+    }
+
+    // Sort food keys by length (longest first) to prioritize specific matches
+    const sortedFoodKeys = Object.keys(enhancedFoodDb).sort((a, b) => b.length - a.length)
+
+    // Try to find foods in the message, avoiding overlaps
+    for (const foodKey of sortedFoodKeys) {
+      const result = extractQuantityAndPosition(lowerMessage, foodKey)
+
+      if (result && !isOverlapping(result.start, result.end)) {
+        const nutrition = enhancedFoodDb[foodKey]
+        const multiplier = result.quantity / nutrition.defaultQty
+
+        foods.push({
+          item: foodKey,
+          quantity: `${result.quantity} ${nutrition.unit}${result.quantity > 1 ? 's' : ''}`,
+          estimatedCalories: Math.round(nutrition.calories * multiplier),
+          protein: Math.round(nutrition.protein * multiplier * 10) / 10,
+          carbs: Math.round(nutrition.carbs * multiplier * 10) / 10,
+          fat: Math.round(nutrition.fat * multiplier * 10) / 10,
+          source: 'enhanced_fallback',
+        })
+
+        // Mark this range as matched
+        matchedRanges.push({ start: result.start, end: result.end })
+      }
+    }
+
+    // If no foods found, use the original basic parsing
+    if (foods.length === 0) {
       return this.basicFoodParsing(message)
+    }
+
+    const totalCalories = foods.reduce((sum, food) => sum + food.estimatedCalories, 0)
+
+    return {
+      foods,
+      total_calories: totalCalories,
+      parsing_notes: `Found ${foods.length} food item(s) using enhanced parsing`,
     }
   }
 
