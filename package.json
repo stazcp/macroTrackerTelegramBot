@@ -1,0 +1,31 @@
+{
+  "name": "macro-tracker-telegram-bot",
+  "version": "1.0.0",
+  "description": "A Telegram bot for tracking calorie intake and macronutrients",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "nutrition",
+    "calories",
+    "macros",
+    "tracker"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.3.1",
+    "groq-sdk": "^0.23.0",
+    "mongoose": "^7.5.0",
+    "node-telegram-bot-api": "^0.61.0"
+  },
+  "devDependencies": {
+    "jest": "^29.6.4",
+    "nodemon": "^3.0.1"
+  }
+}
