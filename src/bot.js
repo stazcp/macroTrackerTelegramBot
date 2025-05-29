@@ -15,8 +15,8 @@ const clearCommand = require('./commands/clearCommand')
 // Get bot token from environment variables
 const token = process.env.TELEGRAM_BOT_TOKEN
 
-// Create a bot instance
-const bot = new TelegramBot(token, { polling: true })
+// Create a bot instance (WITHOUT automatic polling)
+const bot = new TelegramBot(token, { polling: false })
 
 // Register command handlers
 bot.onText(/\/start/, startCommand(bot))
