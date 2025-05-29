@@ -44,9 +44,6 @@ bot.on('message', async (msg) => {
       const intentResult = await aiService.detectIntent(msg.text, recentContext)
       console.log('Intent detected:', intentResult)
 
-      // Store conversation context
-      conversationService.storeContext(msg.from.id, msg.text, intentResult.intent)
-
       if (intentResult.intent === 'log_food' && intentResult.confidence > 0.5) {
         // User is trying to log food
         const foodData = await aiService.parseFoodMessage(msg.text)
@@ -74,6 +71,100 @@ bot.on('message', async (msg) => {
             console.error('Error logging food item:', error)
           }
         }
+
+        // Store conversation context with food data for potential modifications
+        conversationService.storeContext(msg.from.id, msg.text, intentResult.intent, { foodData })
+      } else if (intentResult.intent === 'modify_food' && intentResult.confidence > 0.5) {
+        // User is modifying/clarifying a recent food entry
+        const logService = require('./services/logService')
+
+        // Get the most recent food log from database
+        const recentLog = await logService.getMostRecentLog(msg.from.id)
+
+        if (recentLog) {
+          try {
+            // Use AI to handle the modification
+            const modificationResult = await aiService.handleFoodModification(
+              msg.text,
+              {
+                item: recentLog.food,
+                quantity: recentLog.quantity,
+                calories: recentLog.calories,
+                protein: recentLog.protein,
+                carbs: recentLog.carbs,
+                fat: recentLog.fat,
+              },
+              recentContext
+            )
+
+            if (modificationResult.action === 'update') {
+              // Update the existing log entry
+              const updatedLog = await logService.updateFoodLog(recentLog._id, {
+                food: modificationResult.combined_food.item,
+                calories: modificationResult.combined_food.estimatedCalories,
+                protein: modificationResult.combined_food.protein,
+                carbs: modificationResult.combined_food.carbs,
+                fat: modificationResult.combined_food.fat,
+                notes: modificationResult.combined_food.explanation,
+              })
+
+              bot.sendMessage(
+                msg.chat.id,
+                `✅ Updated your ${recentLog.food} entry!\n\n` +
+                  `🍽️ ${modificationResult.combined_food.item}\n` +
+                  `📊 ${modificationResult.combined_food.estimatedCalories} cal | ` +
+                  `${modificationResult.combined_food.protein}g protein | ` +
+                  `${modificationResult.combined_food.carbs}g carbs | ` +
+                  `${modificationResult.combined_food.fat}g fat\n\n` +
+                  `${
+                    modificationResult.combined_food.explanation
+                      ? modificationResult.combined_food.explanation
+                      : ''
+                  }`
+              )
+            } else {
+              // Add as separate item
+              const foodData = await aiService.parseFoodMessage(msg.text)
+
+              let response = 'Got it! I also logged:\n\n'
+              let totalCalories = 0
+
+              foodData.foods.forEach((food) => {
+                response += `🍽️ ${food.item} (${food.quantity})\n`
+                response += `   📊 ${food.estimatedCalories} cal | ${food.protein}g protein | ${food.carbs}g carbs | ${food.fat}g fat\n\n`
+                totalCalories += food.estimatedCalories
+              })
+
+              response += `Additional ${totalCalories} calories logged! 📈`
+              bot.sendMessage(msg.chat.id, response)
+
+              // Log the additional items
+              for (const food of foodData.foods) {
+                try {
+                  await logCommand(bot)(msg, [null, `${food.item} ${food.quantity}`], true)
+                } catch (error) {
+                  console.error('Error logging additional food item:', error)
+                }
+              }
+            }
+          } catch (error) {
+            console.error('Error handling food modification:', error)
+            // Fallback: treat as new food item
+            bot.sendMessage(
+              msg.chat.id,
+              "I couldn't update your previous entry, but I can log this as a separate item. What would you like me to do?"
+            )
+          }
+        } else {
+          // No recent food to modify
+          bot.sendMessage(
+            msg.chat.id,
+            "I don't see any recent food entries to modify. Could you be more specific about what you'd like to log?"
+          )
+        }
+
+        // Store conversation context
+        conversationService.storeContext(msg.from.id, msg.text, intentResult.intent)
       } else if (intentResult.intent === 'food_question' && intentResult.confidence > 0.5) {
         // User is asking about food/nutrition
 
@@ -111,6 +202,9 @@ bot.on('message', async (msg) => {
         // Generate AI response with context and conversation history
         const response = await aiService.answerFoodQuestion(msg.text, userContext, recentContext)
         bot.sendMessage(msg.chat.id, response)
+
+        // Store conversation context
+        conversationService.storeContext(msg.from.id, msg.text, intentResult.intent)
       } else if (aiService.isAboutFood(msg.text)) {
         // Fallback: still food-related but unclear intent
         bot.sendMessage(
@@ -121,6 +215,9 @@ bot.on('message', async (msg) => {
             '📊 To check status: Use /status to see your daily totals\n\n' +
             'What would you like to do?'
         )
+
+        // Store conversation context
+        conversationService.storeContext(msg.from.id, msg.text, 'food_unclear')
       } else {
         // Not about food, send a helpful message
         bot.sendMessage(
@@ -131,6 +228,9 @@ bot.on('message', async (msg) => {
             '📊 Use /status to see your progress\n\n' +
             'Or check /help for all commands! 😊'
         )
+
+        // Store conversation context
+        conversationService.storeContext(msg.from.id, msg.text, intentResult.intent || 'other')
       }
     } catch (error) {
       console.error('Error processing message:', error)

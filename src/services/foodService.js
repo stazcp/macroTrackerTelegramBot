@@ -12,6 +12,12 @@ const commonFoods = {
   orange: { calories: 62, protein: 1.2, carbs: 15, fat: 0.2 },
   grape: { calories: 3, protein: 0.1, carbs: 0.8, fat: 0 }, // per grape
 
+  // Beverages
+  coffee: { calories: 2, protein: 0.3, carbs: 0, fat: 0 }, // per cup black coffee
+  'coffee with milk': { calories: 45, protein: 2.4, carbs: 3.6, fat: 1.7 }, // coffee with 2oz milk
+  tea: { calories: 2, protein: 0, carbs: 0.7, fat: 0 }, // per cup
+  water: { calories: 0, protein: 0, carbs: 0, fat: 0 },
+
   // Proteins
   egg: { calories: 72, protein: 6.3, carbs: 0.4, fat: 5 },
   'chicken breast': { calories: 165, protein: 31, carbs: 0, fat: 3.6 }, // per 100g

@@ -382,6 +382,8 @@ MIT
 - **Fixed double logging issue**: Messages are no longer logged twice when using conversational AI
 - **Enhanced intent detection**: Bot now distinguishes between food logging and food questions using AI
 - **Improved error handling**: Better fallbacks when AI services are unavailable
+- **🆕 Fixed nutritional accuracy**: No more generic 200-calorie defaults for all foods
+- **🆕 Better modification detection**: "and one apple" now correctly adds to recent meal
 
 ### 🤖 Enhanced AI Capabilities
 
@@ -389,6 +391,7 @@ MIT
 - **Conversational memory**: Bot remembers recent conversation context for better responses
 - **Personalized nutrition advice**: Answers questions based on user's current intake and goals
 - **Context-aware responses**: Understands follow-up questions and references
+- **🆕 Accurate nutritional data**: Uses real food database instead of fallback estimates
 
 ### 🗣️ Conversational Features
 
@@ -396,6 +399,32 @@ MIT
 - **Nutrition Q&A**: Ask "What should I eat more of?" and get personalized advice
 - **Smart fallbacks**: Graceful handling when intent is unclear
 - **Conversation context**: Bot remembers recent messages for better understanding
+- **🆕 Food modifications**: "and one apple" adds to recent meal, "with milk" updates coffee entry
+
+### 🎯 Nutritional Accuracy Improvements
+
+Based on research showing that [not all calories are equal](https://theconversation.com/not-all-calories-are-equal-a-dietitian-explains-the-different-ways-the-kinds-of-foods-you-eat-matter-to-your-body-156900) and [calorie quality matters](https://www.healthline.com/nutrition/6-reasons-why-a-calorie-is-not-a-calorie), we've significantly improved our nutritional tracking:
+
+**Before (v1.0):**
+
+- Everything defaulted to: 200 cal | 10g protein | 20g carbs | 8g fat ❌
+- AI parsing failures led to inaccurate data
+- No distinction between food types
+
+**After (v2.0):**
+
+- **Apple**: 95 cal | 0.5g protein | 25g carbs | 0.3g fat ✅
+- **Coffee**: 2 cal | 0.3g protein | 0g carbs | 0g fat ✅
+- **Coffee with milk**: 45 cal | 2.4g protein | 3.6g carbs | 1.7g fat ✅
+- Real nutritional data from comprehensive food database
+- Accurate macronutrient profiles for different food types
+
+**Key Nutritional Features:**
+
+- **150+ foods**: Comprehensive database with accurate nutrition data
+- **Smart fallbacks**: When AI fails, uses food database instead of generic values
+- **Portion awareness**: Handles quantities correctly (2 apples = 190 calories)
+- **Context combinations**: "coffee" + "with milk" = proper combined nutrition
 
 ### Example Conversations
 
@@ -407,6 +436,20 @@ Bot: Got it! I logged:
      🍽️ chicken breast (1 serving)
      📊 165 cal | 31g protein | 0g carbs | 3.6g fat
      ...
+```
+
+**Food Modifications:**
+
+```
+User: "I had 1 coffee"
+Bot: Got it! I logged:
+     🍽️ coffee (1 cup)
+     📊 2 cal | 0.3g protein | 0g carbs | 0g fat
+
+User: "with milk"
+Bot: ✅ Updated your coffee entry!
+     🍽️ coffee with milk
+     📊 45 cal | 2.4g protein | 3.6g carbs | 1.7g fat
 ```
 
 **Nutrition Questions:**

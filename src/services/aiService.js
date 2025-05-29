@@ -28,13 +28,20 @@ Current message: "${message}"
 
 Intent categories:
 - "log_food": User is reporting food they ate/consumed (e.g., "I ate an apple", "had 2 eggs", "just finished lunch")
+- "modify_food": User is clarifying or adding to a recently logged food item (e.g., "with milk", "and some sugar", "it was actually 2 cups")
 - "food_question": User is asking about food, nutrition, or what to eat (e.g., "what should I eat?", "what do I need more of?", "is this healthy?")
 - "other": Not food-related
 
+Pay special attention to:
+- Short phrases that could be modifications: "with milk", "and cheese", "extra large", "actually 2"
+- Context from previous messages about food logging
+- References to previous items using "it", "that", "my [food]"
+
 Return format:
 {
-  "intent": "log_food" | "food_question" | "other",
-  "confidence": 0.0-1.0
+  "intent": "log_food" | "modify_food" | "food_question" | "other",
+  "confidence": 0.0-1.0,
+  "modification_type": "addition" | "correction" | "clarification" | null
 }
 `
 
@@ -43,7 +50,7 @@ Return format:
         messages: [{ role: 'user', content: prompt }],
         model: 'llama-3.1-8b-instant',
         temperature: 0.1,
-        max_tokens: 150,
+        max_tokens: 200,
       })
 
       const response = completion.choices[0]?.message?.content
@@ -68,6 +75,19 @@ Return format:
   basicIntentDetection(message) {
     const lowerMessage = message.toLowerCase()
 
+    // Modification indicators
+    const modificationWords = ['with', 'and', 'plus', 'add', 'also', 'actually', 'it was', 'my']
+    const modificationPhrases = [
+      'with milk',
+      'and cheese',
+      'extra',
+      'large',
+      'small',
+      'and one',
+      'and a',
+      'plus one',
+    ]
+
     // Question indicators
     const questionWords = ['what', 'how', 'should', 'need', 'can', 'which', '?']
     const adviceWords = ['recommend', 'suggest', 'advice', 'help', 'should eat']
@@ -75,11 +95,32 @@ Return format:
     // Food consumption indicators
     const consumptionWords = ['ate', 'had', 'consumed', 'finished', 'just', 'eating']
 
+    const hasModificationWords = modificationWords.some((word) => lowerMessage.includes(word))
+    const hasModificationPhrases = modificationPhrases.some((phrase) =>
+      lowerMessage.includes(phrase)
+    )
     const hasQuestionWords = questionWords.some((word) => lowerMessage.includes(word))
     const hasAdviceWords = adviceWords.some((word) => lowerMessage.includes(word))
     const hasConsumptionWords = consumptionWords.some((word) => lowerMessage.includes(word))
 
-    if (hasQuestionWords || hasAdviceWords) {
+    // Check for modifications first (phrases that start with modification words or are short additions)
+    if (
+      lowerMessage.startsWith('and ') ||
+      lowerMessage.startsWith('with ') ||
+      lowerMessage.startsWith('plus ')
+    ) {
+      return {
+        intent: 'modify_food',
+        confidence: 0.9,
+        modification_type: 'addition',
+      }
+    } else if ((hasModificationWords || hasModificationPhrases) && lowerMessage.length < 50) {
+      return {
+        intent: 'modify_food',
+        confidence: 0.8,
+        modification_type: 'addition',
+      }
+    } else if (hasQuestionWords || hasAdviceWords) {
       return { intent: 'food_question', confidence: 0.7 }
     } else if (hasConsumptionWords) {
       return { intent: 'log_food', confidence: 0.6 }
@@ -182,7 +223,12 @@ Return format:
   ]
 }
 
-Use standard nutrition estimates. If no quantity specified, assume 1 serving.
+Important:
+- Use realistic nutrition estimates for common foods
+- If the food is "apple", use approximately: 95 calories, 0.5g protein, 25g carbs, 0.3g fat
+- If the food is "coffee", use approximately: 2 calories, 0g protein, 0g carbs, 0g fat
+- If no quantity specified, assume 1 serving
+- Return valid JSON only, no other text
 `
 
     try {
@@ -194,7 +240,20 @@ Use standard nutrition estimates. If no quantity specified, assume 1 serving.
       })
 
       const response = completion.choices[0]?.message?.content
+      console.log('AI response for food parsing:', response) // Debug logging
+
+      if (!response) {
+        console.warn('Empty AI response, using fallback')
+        return this.basicFoodParsing(message)
+      }
+
       const foodData = JSON.parse(response)
+
+      // Validate the response structure
+      if (!foodData.foods || !Array.isArray(foodData.foods) || foodData.foods.length === 0) {
+        console.warn('Invalid AI response structure, using fallback')
+        return this.basicFoodParsing(message)
+      }
 
       // Cache the result (limit cache size)
       if (this.foodCache.size > 1000) {
@@ -205,7 +264,7 @@ Use standard nutrition estimates. If no quantity specified, assume 1 serving.
 
       return foodData
     } catch (error) {
-      console.error('AI parsing error:', error)
+      console.error('AI parsing error:', error.message)
       // Fallback to basic parsing
       return this.basicFoodParsing(message)
     }
@@ -213,17 +272,41 @@ Use standard nutrition estimates. If no quantity specified, assume 1 serving.
 
   // Fallback method for when AI fails
   basicFoodParsing(message) {
-    return {
-      foods: [
-        {
-          item: message,
-          quantity: '1 serving',
-          estimatedCalories: 200,
-          protein: 10,
-          carbs: 20,
-          fat: 8,
-        },
-      ],
+    // Use the food service to get actual nutritional data instead of hardcoded fallback
+    const foodService = require('./foodService')
+
+    try {
+      // Try to extract meaningful nutritional data using the food service
+      const nutritionInfo = foodService.estimateCalories(message)
+
+      return {
+        foods: [
+          {
+            item: nutritionInfo.food,
+            quantity: `${nutritionInfo.quantity} serving${nutritionInfo.quantity > 1 ? 's' : ''}`,
+            estimatedCalories: nutritionInfo.calories,
+            protein: nutritionInfo.protein,
+            carbs: nutritionInfo.carbs,
+            fat: nutritionInfo.fat,
+          },
+        ],
+      }
+    } catch (error) {
+      console.error('Fallback food parsing error:', error)
+
+      // Last resort fallback with very conservative estimates
+      return {
+        foods: [
+          {
+            item: message.toLowerCase().trim(),
+            quantity: '1 serving',
+            estimatedCalories: 100, // More realistic default
+            protein: 2,
+            carbs: 15,
+            fat: 3,
+          },
+        ],
+      }
     }
   }
 
@@ -231,6 +314,65 @@ Use standard nutrition estimates. If no quantity specified, assume 1 serving.
   logUsage(tokensUsed) {
     const cost = (tokensUsed / 1000000) * 0.1 // Groq pricing
     console.log(`AI cost for this request: $${cost.toFixed(6)}`)
+  }
+
+  // Handle food modifications and clarifications
+  async handleFoodModification(message, recentFoodContext, conversationContext = '') {
+    const prompt = `
+You are helping to modify or clarify a recently logged food item. The user is adding information to a previous entry.
+
+${conversationContext ? `Recent conversation context:\n${conversationContext}\n` : ''}
+
+Recent food entry: ${JSON.stringify(recentFoodContext)}
+User modification: "${message}"
+
+Create a combined/updated food entry with the modification. Return JSON only:
+
+{
+  "action": "update" | "add_separate",
+  "combined_food": {
+    "item": "updated food name including modification",
+    "quantity": "combined quantity",
+    "estimatedCalories": number,
+    "protein": number,
+    "carbs": number,
+    "fat": number,
+    "explanation": "brief note about what was modified"
+  }
+}
+
+Examples:
+- Recent: "coffee", Modification: "with milk" → "coffee with milk" (update)
+- Recent: "sandwich", Modification: "and chips" → add separate "chips" (add_separate)
+- Recent: "apple", Modification: "it was actually 2" → "apple" with quantity 2 (update)
+`
+
+    try {
+      const completion = await this.groq.chat.completions.create({
+        messages: [{ role: 'user', content: prompt }],
+        model: 'llama-3.1-8b-instant',
+        temperature: 0.1,
+        max_tokens: 300,
+      })
+
+      const response = completion.choices[0]?.message?.content
+      return JSON.parse(response)
+    } catch (error) {
+      console.error('Food modification error:', error)
+      // Fallback: treat as separate food item
+      return {
+        action: 'add_separate',
+        combined_food: {
+          item: message,
+          quantity: '1 serving',
+          estimatedCalories: 50,
+          protein: 1,
+          carbs: 5,
+          fat: 1,
+          explanation: 'Added as separate item due to processing error',
+        },
+      }
+    }
   }
 }
 

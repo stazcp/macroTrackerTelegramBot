@@ -26,6 +26,7 @@ class ConversationService {
     if (!this.conversations.has(userId)) {
       this.conversations.set(userId, {
         messages: [],
+        recentFoodLogs: [], // Track recent food logs for modifications
         lastActivity: new Date(),
       })
     }
@@ -43,6 +44,20 @@ class ConversationService {
       context,
       timestamp: new Date(),
     })
+
+    // If this was a food log, store it separately for potential modifications
+    if (intent === 'log_food' && context.foodData) {
+      // Keep only last 3 food logs for modification purposes
+      if (userConversation.recentFoodLogs.length >= 3) {
+        userConversation.recentFoodLogs.shift()
+      }
+
+      userConversation.recentFoodLogs.push({
+        message,
+        foodData: context.foodData,
+        timestamp: new Date(),
+      })
+    }
 
     userConversation.lastActivity = new Date()
   }
@@ -107,6 +122,37 @@ class ConversationService {
    */
   clearContext(userId) {
     this.conversations.delete(userId)
+  }
+
+  /**
+   * Get the most recent food log for potential modifications
+   * @param {number} userId - Telegram user ID
+   * @returns {object|null} Most recent food log
+   */
+  getMostRecentFoodLog(userId) {
+    const conversation = this.getContext(userId)
+    if (!conversation || conversation.recentFoodLogs.length === 0) {
+      return null
+    }
+
+    // Return the most recent food log (within last 5 minutes)
+    const recentLog = conversation.recentFoodLogs[conversation.recentFoodLogs.length - 1]
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+
+    if (recentLog.timestamp > fiveMinutesAgo) {
+      return recentLog
+    }
+
+    return null
+  }
+
+  /**
+   * Check if user recently logged food that could be modified
+   * @param {number} userId - Telegram user ID
+   * @returns {boolean}
+   */
+  canModifyRecentFood(userId) {
+    return this.getMostRecentFoodLog(userId) !== null
   }
 }
 

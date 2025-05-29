@@ -87,9 +87,45 @@ const calculateTotals = (logs) => {
   )
 }
 
+/**
+ * Get the most recent food log for a user (within last 5 minutes)
+ * @param {number} telegramId - Telegram user ID
+ * @returns {Promise<object|null>} Most recent food log or null
+ */
+const getMostRecentLog = async (telegramId) => {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+
+  return FoodLog.findOne({
+    telegramId,
+    date: { $gte: fiveMinutesAgo },
+  }).sort({ date: -1 })
+}
+
+/**
+ * Update a recent food log entry
+ * @param {string} logId - Food log ID to update
+ * @param {object} updateData - Data to update
+ * @returns {Promise<object>} Updated food log
+ */
+const updateFoodLog = async (logId, updateData) => {
+  return FoodLog.findByIdAndUpdate(logId, updateData, { new: true, runValidators: true })
+}
+
+/**
+ * Delete a food log entry
+ * @param {string} logId - Food log ID to delete
+ * @returns {Promise<object>} Deleted food log
+ */
+const deleteFoodLog = async (logId) => {
+  return FoodLog.findByIdAndDelete(logId)
+}
+
 module.exports = {
   logFood,
   getTodayLogs,
   getLogsHistory,
   calculateTotals,
+  getMostRecentLog,
+  updateFoodLog,
+  deleteFoodLog,
 }
