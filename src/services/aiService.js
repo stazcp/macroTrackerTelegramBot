@@ -213,18 +213,27 @@ Guidelines:
 - Parse "beef patty with 2 eggs" as separate: beef patty (1) + eggs (2)
 - Parse "chicken sandwich" as: bread (2 slices) + chicken breast (100g) + any mentioned additions
 - Parse "pasta with sauce" as: pasta + sauce separately
+- PAY SPECIAL ATTENTION TO SIZE MODIFIERS: tiny, small, mini, little, medium, regular, normal, large, big, huge, giant, extra large, extra small, jumbo, super
+- Apply size multipliers: tiny/mini (0.5-0.6x), small/little (0.7x), medium/regular/normal (1.0x), large (1.5x), big (1.7x), huge/giant/jumbo (2.0-2.2x), extra large (1.8x), extra small (0.6x)
 - Use realistic serving sizes and nutrition data
 - For beef patty: ~300-400 calories, ~25-30g protein, 0-2g carbs, 20-25g fat
 - For eggs: ~70-75 calories each, ~6g protein, 0.5g carbs, 5g fat
 - For chicken breast: ~165 cal/100g, 31g protein, 0g carbs, 3.6g fat
 - For bread slice: ~80 calories, 3g protein, 15g carbs, 1g fat
+- For banana: ~105 calories, 1.3g protein, 27g carbs, 0.4g fat
 - If quantity not specified, use reasonable defaults (1 patty, 1 cup pasta, etc.)
+- PRESERVE size descriptors in the item name (e.g., "big banana", "small apple")
+
+Examples:
+- "big banana" = banana × 1.7 multiplier = ~178 calories, 2.2g protein, 45.9g carbs, 0.7g fat
+- "small apple" = apple × 0.7 multiplier = ~67 calories, 0.4g protein, 17.5g carbs, 0.2g fat
+- "large coffee" = coffee × 1.5 multiplier
 
 Return format:
 {
   "foods": [
     {
-      "item": "specific food name",
+      "item": "specific food name with size modifier if present",
       "quantity": "amount with unit",
       "estimatedCalories": number,
       "protein": number,
@@ -293,6 +302,9 @@ Return valid JSON only, no other text.
     const foods = []
     const matchedRanges = [] // Track which parts of the message have been matched
 
+    // Import the foodService to use its enhanced modifier functionality
+    const foodService = require('./foodService')
+
     // Enhanced food database with more variations and realistic portions
     const enhancedFoodDb = {
       // Proteins (order by specificity - longer matches first)
@@ -325,6 +337,8 @@ Return valid JSON only, no other text.
       egg: { calories: 72, protein: 6.3, carbs: 0.4, fat: 5, defaultQty: 1, unit: 'egg' },
       beef: { calories: 250, protein: 26, carbs: 0, fat: 17, defaultQty: 100, unit: 'g' },
       salmon: { calories: 206, protein: 22, carbs: 0, fat: 13, defaultQty: 100, unit: 'g' },
+      banana: { calories: 105, protein: 1.3, carbs: 27, fat: 0.4, defaultQty: 1, unit: 'banana' },
+      apple: { calories: 95, protein: 0.5, carbs: 25, fat: 0.3, defaultQty: 1, unit: 'apple' },
 
       // Carbs
       bread: { calories: 80, protein: 3, carbs: 15, fat: 1, defaultQty: 1, unit: 'slice' },
@@ -353,9 +367,34 @@ Return valid JSON only, no other text.
       )
     }
 
-    // Function to extract quantity from text
+    // Function to extract quantity and position, now with size modifier support
     const extractQuantityAndPosition = (text, foodKey) => {
-      // Look for numbers before the food item with word boundaries
+      // First try to find patterns with size modifiers
+      const sizeModifiers = Object.keys(foodService.sizeModifiers)
+
+      // Look for size modifiers before the food item
+      for (const modifier of sizeModifiers) {
+        const patterns = [
+          new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s+${modifier}\\s+${foodKey}\\b`, 'i'),
+          new RegExp(`\\b${modifier}\\s+${foodKey}\\s+\\((\\d+(?:\\.\\d+)?)\\)`, 'i'),
+          new RegExp(`\\b${modifier}\\s+${foodKey}\\b`, 'i'),
+        ]
+
+        for (const pattern of patterns) {
+          const match = text.match(pattern)
+          if (match) {
+            const quantity = match[1] ? parseFloat(match[1]) : enhancedFoodDb[foodKey].defaultQty
+            return {
+              quantity: quantity,
+              modifier: modifier,
+              start: match.index,
+              end: match.index + match[0].length,
+            }
+          }
+        }
+      }
+
+      // Fallback to original patterns without modifiers
       const patterns = [
         new RegExp(`\\b(\\d+(?:\\.\\d+)?)\\s+${foodKey}\\b`, 'i'),
         new RegExp(`\\b${foodKey}\\s+\\((\\d+(?:\\.\\d+)?)\\)`, 'i'),
@@ -367,6 +406,7 @@ Return valid JSON only, no other text.
         if (match) {
           return {
             quantity: parseFloat(match[1]),
+            modifier: null,
             start: match.index,
             end: match.index + match[0].length,
           }
@@ -379,6 +419,7 @@ Return valid JSON only, no other text.
       if (foodMatch) {
         return {
           quantity: enhancedFoodDb[foodKey].defaultQty,
+          modifier: null,
           start: foodMatch.index,
           end: foodMatch.index + foodMatch[0].length,
         }
@@ -396,15 +437,26 @@ Return valid JSON only, no other text.
 
       if (result && !isOverlapping(result.start, result.end)) {
         const nutrition = enhancedFoodDb[foodKey]
-        const multiplier = result.quantity / nutrition.defaultQty
+        const baseMultiplier = result.quantity / nutrition.defaultQty
+
+        // Apply size modifier if present
+        let sizeMultiplier = 1.0
+        let displayName = foodKey
+
+        if (result.modifier) {
+          sizeMultiplier = foodService.sizeModifiers[result.modifier] || 1.0
+          displayName = `${result.modifier} ${foodKey}`
+        }
+
+        const totalMultiplier = baseMultiplier * sizeMultiplier
 
         foods.push({
-          item: foodKey,
+          item: displayName,
           quantity: `${result.quantity} ${nutrition.unit}${result.quantity > 1 ? 's' : ''}`,
-          estimatedCalories: Math.round(nutrition.calories * multiplier),
-          protein: Math.round(nutrition.protein * multiplier * 10) / 10,
-          carbs: Math.round(nutrition.carbs * multiplier * 10) / 10,
-          fat: Math.round(nutrition.fat * multiplier * 10) / 10,
+          estimatedCalories: Math.round(nutrition.calories * totalMultiplier),
+          protein: Math.round(nutrition.protein * totalMultiplier * 10) / 10,
+          carbs: Math.round(nutrition.carbs * totalMultiplier * 10) / 10,
+          fat: Math.round(nutrition.fat * totalMultiplier * 10) / 10,
           source: 'enhanced_fallback',
         })
 
@@ -413,9 +465,31 @@ Return valid JSON only, no other text.
       }
     }
 
-    // If no foods found, use the original basic parsing
+    // If no foods found using enhanced database, use the foodService directly
+    // This will capture foods not in our enhanced database but with size modifiers
     if (foods.length === 0) {
-      return this.basicFoodParsing(message)
+      try {
+        const nutritionInfo = foodService.estimateCalories(message)
+
+        return {
+          foods: [
+            {
+              item: nutritionInfo.food,
+              quantity: `${nutritionInfo.quantity} serving${nutritionInfo.quantity > 1 ? 's' : ''}`,
+              estimatedCalories: nutritionInfo.calories,
+              protein: nutritionInfo.protein,
+              carbs: nutritionInfo.carbs,
+              fat: nutritionInfo.fat,
+              source: 'foodservice_fallback',
+            },
+          ],
+          total_calories: nutritionInfo.calories,
+          parsing_notes: `Used foodService with size modifier support`,
+        }
+      } catch (error) {
+        console.error('FoodService fallback error:', error)
+        return this.basicFoodParsing(message)
+      }
     }
 
     const totalCalories = foods.reduce((sum, food) => sum + food.estimatedCalories, 0)
@@ -423,7 +497,7 @@ Return valid JSON only, no other text.
     return {
       foods,
       total_calories: totalCalories,
-      parsing_notes: `Found ${foods.length} food item(s) using enhanced parsing`,
+      parsing_notes: `Found ${foods.length} food item(s) using enhanced parsing with size modifier support`,
     }
   }
 

@@ -3,6 +3,27 @@
  * Handles estimating calories and macros for food entries
  */
 
+// Size modifiers and their multipliers
+const sizeModifiers = {
+  tiny: 0.5,
+  mini: 0.6,
+  small: 0.7,
+  little: 0.7,
+  medium: 1.0,
+  regular: 1.0,
+  normal: 1.0,
+  average: 1.0,
+  large: 1.5,
+  big: 1.7,
+  huge: 2.0,
+  giant: 2.2,
+  extra: 1.3, // for "extra large"
+  'extra large': 1.8,
+  'extra small': 0.6,
+  jumbo: 2.0,
+  super: 1.8,
+}
+
 // Simple database of common foods for MVP
 // In a real implementation, this would be in a database or external API
 const commonFoods = {
@@ -46,6 +67,52 @@ const commonFoods = {
 }
 
 /**
+ * Extract size modifiers from food input string
+ * @param {string} input - Food input string
+ * @returns {object} Extracted modifier and cleaned food name
+ */
+const extractSizeModifier = (input) => {
+  const lowerInput = input.toLowerCase()
+
+  // Check for compound modifiers first (like "extra large")
+  for (const [modifier, multiplier] of Object.entries(sizeModifiers)) {
+    if (modifier.includes(' ')) {
+      // For multi-word modifiers like "extra large"
+      const regex = new RegExp(`\\b${modifier}\\b`, 'i')
+      if (regex.test(lowerInput)) {
+        const cleanedFood = input.replace(regex, '').trim()
+        return {
+          modifier: modifier,
+          multiplier: multiplier,
+          food: cleanedFood,
+        }
+      }
+    }
+  }
+
+  // Then check for single word modifiers
+  for (const [modifier, multiplier] of Object.entries(sizeModifiers)) {
+    if (!modifier.includes(' ')) {
+      const regex = new RegExp(`\\b${modifier}\\b`, 'i')
+      if (regex.test(lowerInput)) {
+        const cleanedFood = input.replace(regex, '').trim()
+        return {
+          modifier: modifier,
+          multiplier: multiplier,
+          food: cleanedFood,
+        }
+      }
+    }
+  }
+
+  return {
+    modifier: null,
+    multiplier: 1.0,
+    food: input.trim(),
+  }
+}
+
+/**
  * Extract quantities from food input string
  * @param {string} input - Food input string
  * @returns {object} Extracted quantity and food name
@@ -72,33 +139,53 @@ const extractQuantity = (input) => {
  * @returns {object} Calories and macros estimation
  */
 const estimateCalories = (foodText) => {
-  const { quantity, food } = extractQuantity(foodText)
+  // First extract any size modifiers
+  const { modifier, multiplier, food: foodWithoutModifier } = extractSizeModifier(foodText)
+
+  // Then extract quantity
+  const { quantity, food } = extractQuantity(foodWithoutModifier)
   const lowerCaseFood = food.toLowerCase()
 
   // Check against our database of common foods
   for (const [knownFood, nutrition] of Object.entries(commonFoods)) {
     if (lowerCaseFood.includes(knownFood)) {
+      const totalMultiplier = quantity * multiplier
+
+      let displayFood = food
+      if (modifier) {
+        displayFood = `${modifier} ${food}`
+      }
+
       return {
-        food: food,
+        food: displayFood,
         quantity: quantity,
-        calories: Math.round(nutrition.calories * quantity),
-        protein: Math.round(nutrition.protein * quantity * 10) / 10,
-        carbs: Math.round(nutrition.carbs * quantity * 10) / 10,
-        fat: Math.round(nutrition.fat * quantity * 10) / 10,
+        modifier: modifier,
+        sizeMultiplier: multiplier,
+        calories: Math.round(nutrition.calories * totalMultiplier),
+        protein: Math.round(nutrition.protein * totalMultiplier * 10) / 10,
+        carbs: Math.round(nutrition.carbs * totalMultiplier * 10) / 10,
+        fat: Math.round(nutrition.fat * totalMultiplier * 10) / 10,
         source: 'database',
       }
     }
   }
 
-  // Basic estimation for unknown foods
-  // In a real implementation, this would call a nutrition API
+  // Basic estimation for unknown foods (also apply modifier)
+  const totalMultiplier = quantity * multiplier
+  let displayFood = food
+  if (modifier) {
+    displayFood = `${modifier} ${food}`
+  }
+
   return {
-    food: food,
+    food: displayFood,
     quantity: quantity,
-    calories: Math.round(100 * quantity), // Default estimation
-    protein: Math.round(5 * quantity * 10) / 10,
-    carbs: Math.round(15 * quantity * 10) / 10,
-    fat: Math.round(2 * quantity * 10) / 10,
+    modifier: modifier,
+    sizeMultiplier: multiplier,
+    calories: Math.round(100 * totalMultiplier), // Default estimation
+    protein: Math.round(5 * totalMultiplier * 10) / 10,
+    carbs: Math.round(15 * totalMultiplier * 10) / 10,
+    fat: Math.round(2 * totalMultiplier * 10) / 10,
     source: 'estimated',
     note: 'Estimated values. For more accurate tracking, try being more specific with food names.',
   }
@@ -107,4 +194,6 @@ const estimateCalories = (foodText) => {
 module.exports = {
   estimateCalories,
   extractQuantity,
+  extractSizeModifier,
+  sizeModifiers,
 }
