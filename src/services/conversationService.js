@@ -154,6 +154,48 @@ class ConversationService {
   canModifyRecentFood(userId) {
     return this.getMostRecentFoodLog(userId) !== null
   }
+
+  /**
+   * Check if user is awaiting clarification for a food item
+   * @param {number} userId - Telegram user ID
+   * @returns {object|null} Clarification context if awaiting, null otherwise
+   */
+  isAwaitingClarification(userId) {
+    const conversation = this.getContext(userId)
+    if (!conversation || conversation.messages.length === 0) {
+      return null
+    }
+
+    // Check if the most recent message was awaiting clarification (within last 5 minutes)
+    const recentMessage = conversation.messages[conversation.messages.length - 1]
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
+
+    if (
+      recentMessage.intent === 'awaiting_clarification' &&
+      recentMessage.timestamp > fiveMinutesAgo
+    ) {
+      return recentMessage
+    }
+
+    return null
+  }
+
+  /**
+   * Clear the awaiting clarification state
+   * @param {number} userId - Telegram user ID
+   */
+  clearAwaitingClarification(userId) {
+    const conversation = this.getContext(userId)
+    if (!conversation || conversation.messages.length === 0) {
+      return
+    }
+
+    // Remove the awaiting clarification message
+    const messages = conversation.messages
+    if (messages.length > 0 && messages[messages.length - 1].intent === 'awaiting_clarification') {
+      messages.pop()
+    }
+  }
 }
 
 // Export singleton instance

@@ -55,8 +55,64 @@ bot.on('message', async (msg) => {
       // Send "typing" indicator
       bot.sendChatAction(msg.chat.id, 'typing')
 
-      // Get conversation context for better understanding
+      // Get recent conversation context for intent detection
       const recentContext = conversationService.getRecentContext(msg.from.id)
+
+      // Check if user is awaiting clarification (responding to follow-up question)
+      const awaitingClarification = conversationService.isAwaitingClarification(msg.from.id)
+      if (awaitingClarification) {
+        try {
+          // Get the original food message and combine with clarification
+          const clarificationData = awaitingClarification.context
+          const originalMessage = clarificationData.originalMessage
+          const combinedMessage = `${originalMessage} - ${msg.text}`
+
+          // Re-parse with the additional context
+          const foodData = await aiService.parseFoodMessage(combinedMessage)
+
+          // Log the clarified food
+          let response = 'Perfect! I logged:\n\n'
+          let totalCalories = 0
+
+          foodData.foods.forEach((food) => {
+            response += `🍽️ ${food.item} (${food.quantity})\n`
+            response += `   📊 ${food.estimatedCalories} cal | ${food.protein}g protein | ${food.carbs}g carbs | ${food.fat}g fat\n\n`
+            totalCalories += food.estimatedCalories
+          })
+
+          response += `Total: ${totalCalories} calories added to today's log! 📈`
+          bot.sendMessage(msg.chat.id, response)
+
+          // Log the food items
+          const userService = require('./services/userService')
+          const logService = require('./services/logService')
+
+          const user = await userService.getOrCreateUser(msg.from.id, {
+            username: msg.from.username,
+            firstName: msg.from.first_name,
+            lastName: msg.from.last_name,
+          })
+
+          for (const food of foodData.foods) {
+            try {
+              await logService.logFood(user, food)
+            } catch (error) {
+              console.error('Error logging clarified food item:', error)
+            }
+          }
+
+          // Clear the awaiting clarification state
+          conversationService.clearAwaitingClarification(msg.from.id)
+          return
+        } catch (error) {
+          console.error('Error handling clarification:', error)
+          bot.sendMessage(
+            msg.chat.id,
+            'Sorry, I had trouble processing that. Let me try again with just the basic info.'
+          )
+          conversationService.clearAwaitingClarification(msg.from.id)
+        }
+      }
 
       // Detect user intent using AI with conversation context
       const intentResult = await aiService.detectIntent(msg.text, recentContext)
@@ -65,6 +121,18 @@ bot.on('message', async (msg) => {
       if (intentResult.intent === 'log_food' && intentResult.confidence > 0.5) {
         // User is trying to log food
         const foodData = await aiService.parseFoodMessage(msg.text)
+
+        // Check if AI needs follow-up questions for clarification
+        if (foodData.needsFollowUp && foodData.followUpQuestion) {
+          bot.sendMessage(msg.chat.id, `🤔 ${foodData.followUpQuestion}`)
+
+          // Store the partial food data for when user responds
+          conversationService.storeContext(msg.from.id, msg.text, 'awaiting_clarification', {
+            partialFoodData: foodData,
+            originalMessage: msg.text,
+          })
+          return
+        }
 
         // Create a friendly response
         let response = 'Got it! I logged:\n\n'

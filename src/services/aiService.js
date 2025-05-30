@@ -209,44 +209,63 @@ Extract all individual food items from this message and return JSON only. Parse 
 
 Message: "${message}"
 
+CRITICAL: Return ONLY valid JSON. Do NOT include markdown formatting, code blocks, or any text outside the JSON object.
+
 Guidelines:
 - Parse "beef patty with 2 eggs" as separate: beef patty (1) + eggs (2)
 - Parse "chicken sandwich" as: bread (2 slices) + chicken breast (100g) + any mentioned additions
 - Parse "pasta with sauce" as: pasta + sauce separately
-- PAY SPECIAL ATTENTION TO SIZE MODIFIERS: tiny, small, mini, little, medium, regular, normal, large, big, huge, giant, extra large, extra small, jumbo, super
+- PAY SPECIAL ATTENTION TO SPECIFIC MEASUREMENTS: 5oz, 100g, 2 cups, 1.5 lbs, etc.
+- PRESERVE LEAN PERCENTAGES: 92% lean, 85% lean, 90% lean beef
 - Apply size multipliers: tiny/mini (0.5-0.6x), small/little (0.7x), medium/regular/normal (1.0x), large (1.5x), big (1.7x), huge/giant/jumbo (2.0-2.2x), extra large (1.8x), extra small (0.6x)
-- Use realistic serving sizes and nutrition data
-- For beef patty: ~300-400 calories, ~25-30g protein, 0-2g carbs, 20-25g fat
-- For eggs: ~70-75 calories each, ~6g protein, 0.5g carbs, 5g fat
-- For chicken breast: ~165 cal/100g, 31g protein, 0g carbs, 3.6g fat
-- For bread slice: ~80 calories, 3g protein, 15g carbs, 1g fat
-- For banana: ~105 calories, 1.3g protein, 27g carbs, 0.4g fat
-- If quantity not specified, use reasonable defaults (1 patty, 1 cup pasta, etc.)
-- PRESERVE size descriptors in the item name (e.g., "big banana", "small apple")
+- Use weight-based calculations when specific measurements are provided
+- For specific weights, calculate nutrition accurately:
+  * 5oz (142g) 92% lean beef patty = ~280 calories, 37g protein, 0g carbs, 11g fat
+  * 100g chicken breast = ~165 calories, 31g protein, 0g carbs, 3.6g fat
+  * 2 large eggs = ~140 calories, 12g protein, 1g carbs, 10g fat
+- If quantity not specified, use reasonable defaults (1 patty, 1 cup pasta, 6-8 pieces sushi, etc.)
+- PRESERVE size descriptors AND measurements in the item name (e.g., "big banana", "5oz beef patty 92% lean")
+
+MEASUREMENT PRIORITY:
+1. Specific weights (5oz, 100g) = HIGHEST accuracy
+2. Size modifiers (big, small) = MEDIUM accuracy  
+3. Generic quantities = LOWEST accuracy
+
+ASK FOLLOW-UP QUESTIONS when food is too vague:
+- "sushi" → "What type of sushi? (e.g., California roll, salmon roll, nigiri)"
+- "pizza" → "What size pizza slice? (small, medium, large) And what toppings?"
+- "salad" → "What type of salad? (Caesar, garden, with dressing?)"
+- "pasta" → "What type of pasta and sauce? How much?"
+- "sandwich" → "What kind of sandwich? (turkey, ham, PB&J, etc.)"
 
 Examples:
-- "big banana" = banana × 1.7 multiplier = ~178 calories, 2.2g protein, 45.9g carbs, 0.7g fat
-- "small apple" = apple × 0.7 multiplier = ~67 calories, 0.4g protein, 17.5g carbs, 0.2g fat
-- "large coffee" = coffee × 1.5 multiplier
+- "5oz 92% lean beef patty" = 280 calories, 37g protein, 0g carbs, 11g fat
+- "2 large eggs" = 140 calories, 12g protein, 1g carbs, 10g fat
+- "1 slice bread" = 80 calories, 3g protein, 15g carbs, 1g fat
+- "big banana" = banana × 1.7 multiplier = ~150 calories, 1.9g protein, 39g carbs, 0.5g fat
 
-Return format:
+RETURN FORMAT (VALID JSON ONLY):
 {
   "foods": [
     {
-      "item": "specific food name with size modifier if present",
+      "item": "specific food name with measurements and modifiers",
       "quantity": "amount with unit",
       "estimatedCalories": number,
       "protein": number,
       "carbs": number,
       "fat": number,
-      "source": "ai_enhanced"
+      "source": "ai_enhanced",
+      "accuracy": "high|medium|low",
+      "needsClarification": false
     }
   ],
   "total_calories": number,
-  "parsing_notes": "brief explanation of how items were parsed"
+  "parsing_notes": "brief explanation of how items were parsed",
+  "needsFollowUp": false,
+  "followUpQuestion": ""
 }
 
-Return valid JSON only, no other text.
+If food is too ambiguous, set needsFollowUp to true and provide a helpful followUpQuestion.
 `
 
     try {
@@ -265,7 +284,33 @@ Return valid JSON only, no other text.
         return this.enhancedFoodParsing(message)
       }
 
-      const foodData = JSON.parse(response)
+      // Clean up the response - remove markdown formatting if present
+      let cleanedResponse = response.trim()
+
+      // Remove markdown code blocks if present
+      if (cleanedResponse.startsWith('```json')) {
+        cleanedResponse = cleanedResponse.replace(/^```json\s*/, '').replace(/\s*```$/, '')
+      } else if (cleanedResponse.startsWith('```')) {
+        cleanedResponse = cleanedResponse.replace(/^```\s*/, '').replace(/\s*```$/, '')
+      }
+
+      // Remove any extra text after the JSON object
+      const jsonStart = cleanedResponse.indexOf('{')
+      const jsonEnd = cleanedResponse.lastIndexOf('}')
+
+      if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+        cleanedResponse = cleanedResponse.substring(jsonStart, jsonEnd + 1)
+      }
+
+      let foodData
+      try {
+        foodData = JSON.parse(cleanedResponse)
+      } catch (parseError) {
+        console.error('JSON parsing failed:', parseError.message)
+        console.error('Cleaned response:', cleanedResponse)
+        console.warn('Using enhanced fallback due to JSON parsing error')
+        return this.enhancedFoodParsing(message)
+      }
 
       // Validate the response structure
       if (!foodData.foods || !Array.isArray(foodData.foods) || foodData.foods.length === 0) {
